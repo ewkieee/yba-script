@@ -1,0 +1,336 @@
+-- YBA Script v2 | Project Real compatible
+-- Auto Farm Items | Physics Mods | NoClip | Fly
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local plr = Players.LocalPlayer
+local char = plr.Character or plr.CharacterAdded:Wait()
+local root = char:WaitForChild("HumanoidRootPart")
+local hum = char:WaitForChild("Humanoid")
+
+local flying = false
+local noclip = false
+local autoFarm = false
+local flyConn = nil
+local bodyVel = nil
+local bodyGyro = nil
+
+local cfg = {
+    WalkSpeed = 100,
+    JumpPower = 120,
+    FlySpeed = 150,
+    AutoFarmRadius = 20, -- proximity prompt trigger distance
+}
+
+-- Character refresh
+plr.CharacterAdded:Connect(function(c)
+    char = c
+    root = c:WaitForChild("HumanoidRootPart")
+    hum = c:WaitForChild("Humanoid")
+    -- reapply speed on respawn
+    task.wait(0.5)
+    applySpeed()
+end)
+
+-- WalkSpeed через BodyVelocity workaround не нужен —
+-- YBA позволяет менять speed если делать это правильно
+function applySpeed()
+    if hum then
+        hum.WalkSpeed = cfg.WalkSpeed
+        hum.JumpPower = cfg.JumpPower
+    end
+end
+
+-- Постоянно форсим скорость каждый кадр
+RunService.Heartbeat:Connect(function()
+    if hum and hum.Parent then
+        hum.WalkSpeed = cfg.WalkSpeed
+        hum.JumpPower = cfg.JumpPower
+    end
+end)
+
+-- NoClip
+RunService.Stepped:Connect(function()
+    if noclip and char then
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+        end
+    end
+end)
+
+-- Fly
+local function startFly()
+    if flying then return end
+    flying = true
+
+    bodyVel = Instance.new("BodyVelocity")
+    bodyVel.Velocity = Vector3.zero
+    bodyVel.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+    bodyVel.Parent = root
+
+    bodyGyro = Instance.new("BodyGyro")
+    bodyGyro.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
+    bodyGyro.D = 100
+    bodyGyro.Parent = root
+
+    flyConn = RunService.RenderStepped:Connect(function()
+        if not flying then return end
+        local cam = workspace.CurrentCamera
+        local dir = Vector3.zero
+
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+            dir = dir + cam.CFrame.LookVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+            dir = dir - cam.CFrame.LookVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+            dir = dir - cam.CFrame.RightVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+            dir = dir + cam.CFrame.RightVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            dir = dir + Vector3.new(0, 1, 0)
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+            dir = dir - Vector3.new(0, 1, 0)
+        end
+
+        bodyVel.Velocity = dir.Magnitude > 0 and dir.Unit * cfg.FlySpeed or Vector3.zero
+        bodyGyro.CFrame = cam.CFrame
+    end)
+end
+
+local function stopFly()
+    flying = false
+    if flyConn then flyConn:Disconnect() flyConn = nil end
+    if bodyVel then bodyVel:Destroy() bodyVel = nil end
+    if bodyGyro then bodyGyro:Destroy() bodyGyro = nil end
+end
+
+-- Auto Farm — ищет ProximityPrompt в workspace
+-- YBA использует ProximityPrompt с ActionText "Pick Up" или ObjectText = название предмета
+local function findNearestPrompt()
+    local nearest = nil
+    local nearestDist = math.huge
+
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("ProximityPrompt") then
+            -- фильтр по YBA предметам
+            local actionText = obj.ActionText:lower()
+            local objText = obj.ObjectText:lower()
+            if actionText:find("pick") or actionText:find("grab") or
+               objText:find("arrow") or objText:find("stand") or
+               objText:find("disc") or objText:find("item") or
+               objText:find("rokaka") or objText:find("vampire") or
+               objText:find("steel") or objText:find("stone") then
+                local part = obj.Parent
+                if part:IsA("BasePart") or part:IsA("Model") then
+                    local pos
+                    if part:IsA("Model") then
+                        pos = part:GetPivot().Position
+                    else
+                        pos = part.Position
+                    end
+                    local dist = (root.Position - pos).Magnitude
+                    if dist < nearestDist then
+                        nearestDist = dist
+                        nearest = {prompt = obj, pos = pos, dist = dist}
+                    end
+                end
+            end
+        end
+    end
+    return nearest
+end
+
+local farmConn = nil
+
+local function startFarm()
+    if farmConn then farmConn:Disconnect() end
+    farmConn = RunService.Heartbeat:Connect(function()
+        if not autoFarm then return end
+        if not char or not root then return end
+
+        local item = findNearestPrompt()
+        if not item then return end
+
+        local dist = (root.Position - item.pos).Magnitude
+
+        if dist > 8 then
+            -- летим к предмету
+            root.CFrame = CFrame.new(
+                root.Position:Lerp(item.pos + Vector3.new(0, 3, 0), 0.3)
+            )
+        else
+            -- триггерим ProximityPrompt напрямую
+            fireproximityprompt(item.prompt)
+        end
+    end)
+end
+
+startFarm()
+
+-- GUI
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "YBAMenu"
+screenGui.ResetOnSpawn = false
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.Parent = plr.PlayerGui
+
+local main = Instance.new("Frame")
+main.Size = UDim2.new(0, 280, 0, 420)
+main.Position = UDim2.new(0, 20, 0.5, -210)
+main.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+main.BorderSizePixel = 0
+main.Active = true
+main.Draggable = true
+main.Parent = screenGui
+Instance.new("UICorner", main).CornerRadius = UDim.new(0, 8)
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 40)
+title.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
+title.Text = "YBA | Hub"
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.TextSize = 18
+title.Font = Enum.Font.GothamBold
+title.BorderSizePixel = 0
+title.Parent = main
+Instance.new("UICorner", title).CornerRadius = UDim.new(0, 8)
+
+local list = Instance.new("Frame")
+list.Size = UDim2.new(1, -20, 1, -50)
+list.Position = UDim2.new(0, 10, 0, 45)
+list.BackgroundTransparency = 1
+list.Parent = main
+
+local layout = Instance.new("UIListLayout")
+layout.Padding = UDim.new(0, 8)
+layout.Parent = list
+
+local function makeToggle(label, callback)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, 0, 0, 38)
+    btn.BackgroundColor3 = Color3.fromRGB(35, 35, 50)
+    btn.Text = "[ OFF ] " .. label
+    btn.TextColor3 = Color3.fromRGB(180, 180, 180)
+    btn.TextSize = 14
+    btn.Font = Enum.Font.Gotham
+    btn.BorderSizePixel = 0
+    btn.Parent = list
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+
+    local state = false
+    btn.MouseButton1Click:Connect(function()
+        state = not state
+        btn.Text = (state and "[ ON ]  " or "[ OFF ] ") .. label
+        btn.TextColor3 = state and Color3.fromRGB(100, 220, 130) or Color3.fromRGB(180, 180, 180)
+        btn.BackgroundColor3 = state and Color3.fromRGB(25, 50, 30) or Color3.fromRGB(35, 35, 50)
+        callback(state)
+    end)
+    return btn
+end
+
+local function makeSlider(label, min, max, default, callback)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, 0, 0, 50)
+    frame.BackgroundColor3 = Color3.fromRGB(35, 35, 50)
+    frame.BorderSizePixel = 0
+    frame.Parent = list
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 6)
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, -10, 0, 20)
+    lbl.Position = UDim2.new(0, 8, 0, 4)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = label .. ": " .. default
+    lbl.TextColor3 = Color3.fromRGB(180, 180, 180)
+    lbl.TextSize = 13
+    lbl.Font = Enum.Font.Gotham
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Parent = frame
+
+    local track = Instance.new("Frame")
+    track.Size = UDim2.new(1, -16, 0, 6)
+    track.Position = UDim2.new(0, 8, 0, 30)
+    track.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+    track.BorderSizePixel = 0
+    track.Parent = frame
+    Instance.new("UICorner", track).CornerRadius = UDim.new(0, 3)
+
+    local fill = Instance.new("Frame")
+    fill.Size = UDim2.new((default - min) / (max - min), 0, 1, 0)
+    fill.BackgroundColor3 = Color3.fromRGB(100, 180, 255)
+    fill.BorderSizePixel = 0
+    fill.Parent = track
+    Instance.new("UICorner", fill).CornerRadius = UDim.new(0, 3)
+
+    local dragging = false
+    track.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
+        end
+    end)
+    RunService.RenderStepped:Connect(function()
+        if dragging then
+            local mouse = UserInputService:GetMouseLocation()
+            local abs = track.AbsolutePosition
+            local sz = track.AbsoluteSize
+            local pct = math.clamp((mouse.X - abs.X) / sz.X, 0, 1)
+            local val = math.floor(min + pct * (max - min))
+            fill.Size = UDim2.new(pct, 0, 1, 0)
+            lbl.Text = label .. ": " .. val
+            callback(val)
+        end
+    end)
+end
+
+makeToggle("Auto Farm Items", function(s)
+    autoFarm = s
+end)
+
+makeToggle("Fly  [W/S/A/D + Space/Ctrl]", function(s)
+    if s then startFly() else stopFly() end
+end)
+
+makeToggle("NoClip", function(s)
+    noclip = s
+    if not s and char then
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = true
+            end
+        end
+    end
+end)
+
+makeSlider("WalkSpeed", 16, 500, 100, function(v)
+    cfg.WalkSpeed = v
+end)
+
+makeSlider("JumpPower", 50, 500, 120, function(v)
+    cfg.JumpPower = v
+end)
+
+makeSlider("Fly Speed", 20, 300, 150, function(v)
+    cfg.FlySpeed = v
+end)
+
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == Enum.KeyCode.RightControl then
+        main.Visible = not main.Visible
+    end
+end)
