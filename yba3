@@ -1,0 +1,583 @@
+-- YBA Hub v3 | Auto Farm | Auto Sell | Auto Arrow | Stand Filter
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local plr = Players.LocalPlayer
+local char = plr.Character or plr.CharacterAdded:Wait()
+local root = char:WaitForChild("HumanoidRootPart")
+local hum = char:WaitForChild("Humanoid")
+
+-- ============================================
+-- НАСТРОЙКИ — МЕНЯЙ ПОД СЕБЯ
+-- ============================================
+
+local cfg = {
+    WalkSpeed = 100,
+    JumpPower = 120,
+    FlySpeed = 150,
+}
+
+-- Предметы которые БРАТЬ (если пусто — берёт всё)
+local ITEM_WHITELIST = {
+    ["Stand Arrow"] = true,
+    ["Mysterious Arrow"] = true,
+    ["Rokaka"] = true,
+    ["Pure Rokaka"] = true,
+    ["Diamond"] = true,
+    ["Gold Coin"] = true,
+    ["Stone Mask"] = true,
+    ["Steel Ball"] = true,
+    ["Rib Cage"] = true,
+}
+
+-- Предметы которые НЕ БРАТЬ
+local ITEM_BLACKLIST = {
+    ["Bat"] = true,
+    ["Blood Bottle"] = true,
+}
+
+-- Стенды которые ОСТАВЛЯТЬ (остальные = реролл)
+local KEEP_STANDS = {
+    ["Star Platinum"] = true,
+    ["The World"] = true,
+    ["King Crimson"] = true,
+    ["Gold Experience Requiem"] = true,
+    ["Killer Queen"] = true,
+    ["Crazy Diamond"] = true,
+    ["Made in Heaven"] = true,
+    ["C-Moon"] = true,
+    ["Tusk Act 4"] = true,
+    ["D4C: Love Train"] = true,
+    ["Whitesnake"] = true,
+    ["Stone Free"] = true,
+    ["Soft & Wet"] = true,
+}
+
+-- ============================================
+
+local flying = false
+local noclip = false
+local autoFarm = false
+local autoSell = false
+local autoArrow = false
+local flyConn = nil
+local bodyVel = nil
+local bodyGyro = nil
+
+plr.CharacterAdded:Connect(function(c)
+    char = c
+    root = c:WaitForChild("HumanoidRootPart")
+    hum = c:WaitForChild("Humanoid")
+end)
+
+-- Постоянный форс скорости
+RunService.Heartbeat:Connect(function()
+    if hum and hum.Parent then
+        hum.WalkSpeed = cfg.WalkSpeed
+        hum.JumpPower = cfg.JumpPower
+    end
+end)
+
+-- NoClip
+RunService.Stepped:Connect(function()
+    if noclip and char then
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+        end
+    end
+end)
+
+-- Fly
+local function startFly()
+    if flying then return end
+    flying = true
+    bodyVel = Instance.new("BodyVelocity")
+    bodyVel.Velocity = Vector3.zero
+    bodyVel.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+    bodyVel.Parent = root
+    bodyGyro = Instance.new("BodyGyro")
+    bodyGyro.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
+    bodyGyro.D = 100
+    bodyGyro.Parent = root
+    flyConn = RunService.RenderStepped:Connect(function()
+        if not flying then return end
+        local cam = workspace.CurrentCamera
+        local dir = Vector3.zero
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir = dir + cam.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then dir = dir - cam.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then dir = dir - cam.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then dir = dir + cam.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.new(0,1,0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then dir = dir - Vector3.new(0,1,0) end
+        bodyVel.Velocity = dir.Magnitude > 0 and dir.Unit * cfg.FlySpeed or Vector3.zero
+        bodyGyro.CFrame = cam.CFrame
+    end)
+end
+
+local function stopFly()
+    flying = false
+    if flyConn then flyConn:Disconnect() flyConn = nil end
+    if bodyVel then bodyVel:Destroy() bodyVel = nil end
+    if bodyGyro then bodyGyro:Destroy() bodyGyro = nil end
+end
+
+-- ============================================
+-- АВТО ФАРМ С ФИЛЬТРОМ
+-- ============================================
+
+local function isItemWanted(name)
+    if ITEM_BLACKLIST[name] then return false end
+    -- если вайтлист пустой — берём всё кроме блеклиста
+    local hasWhitelist = next(ITEM_WHITELIST) ~= nil
+    if hasWhitelist then
+        return ITEM_WHITELIST[name] == true
+    end
+    return true
+end
+
+local function findNearestPrompt()
+    local nearest = nil
+    local nearestDist = math.huge
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("ProximityPrompt") then
+            local objText = obj.ObjectText
+            local actionText = obj.ActionText:lower()
+            -- только подбор, не другие промпты
+            if actionText:find("pick") or actionText:find("grab") then
+                if isItemWanted(objText) then
+                    local part = obj.Parent
+                    local pos
+                    if part:IsA("Model") then
+                        pcall(function() pos = part:GetPivot().Position end)
+                    elseif part:IsA("BasePart") then
+                        pos = part.Position
+                    end
+                    if pos then
+                        local dist = (root.Position - pos).Magnitude
+                        if dist < nearestDist then
+                            nearestDist = dist
+                            nearest = {prompt = obj, pos = pos}
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return nearest
+end
+
+-- ============================================
+-- АВТО ПРОДАЖА — ShiftPlox
+-- ============================================
+
+-- ShiftPlox находится в Merchant's Keep
+-- ищем его по имени в workspace
+local function findShiftPlox()
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("ProximityPrompt") then
+            local txt = (obj.ObjectText or ""):lower()
+            local act = (obj.ActionText or ""):lower()
+            if txt:find("shift") or txt:find("merchant") or act:find("sell") then
+                local part = obj.Parent
+                local pos
+                if part:IsA("BasePart") then pos = part.Position
+                elseif part:IsA("Model") then pcall(function() pos = part:GetPivot().Position end) end
+                if pos then return {prompt = obj, pos = pos} end
+            end
+        end
+    end
+    return nil
+end
+
+local sellCooldown = false
+
+local function doAutoSell()
+    if sellCooldown then return end
+    local merchant = findShiftPlox()
+    if not merchant then return end
+    sellCooldown = true
+
+    -- летим к мерчанту
+    local dist = (root.Position - merchant.pos).Magnitude
+    if dist > 8 then
+        root.CFrame = CFrame.new(merchant.pos + Vector3.new(0, 3, 0))
+        task.wait(0.3)
+    end
+
+    -- открываем промпт
+    pcall(function()
+        fireproximityprompt(merchant.prompt)
+    end)
+
+    task.wait(3) -- ждём пока UI продажи откроется
+    sellCooldown = false
+end
+
+-- ============================================
+-- АВТО ОТКРЫТИЕ СТРЕЛЛ
+-- ============================================
+
+local function getCurrentStand()
+    -- YBA хранит стенд в leaderstats или custom value
+    local stats = plr:FindFirstChild("leaderstats")
+    if stats then
+        local stand = stats:FindFirstChild("Stand")
+        if stand then return stand.Value end
+    end
+    -- альтернативный путь
+    local data = plr:FindFirstChild("Data")
+    if data then
+        local stand = data:FindFirstChild("Stand")
+        if stand then return stand.Value end
+    end
+    return nil
+end
+
+local function shouldKeepStand(standName)
+    if not standName or standName == "" or standName == "None" then return false end
+    return KEEP_STANDS[standName] == true
+end
+
+local function findArrowPrompt()
+    -- ищем стрелу в инвентаре или на земле — YBA использует GUI для открытия
+    -- ищем кнопку Use в inventory GUI
+    local playerGui = plr.PlayerGui
+    for _, gui in ipairs(playerGui:GetDescendants()) do
+        if gui:IsA("TextButton") then
+            local txt = gui.Text:lower()
+            if txt:find("use") or txt:find("open") then
+                -- проверяем что это стрела
+                local parent = gui.Parent
+                if parent then
+                    local itemLabel = parent:FindFirstChild("ItemName") or parent:FindFirstChild("Name")
+                    if itemLabel and (tostring(itemLabel.Text):lower():find("arrow") or
+                                     tostring(itemLabel.Text):lower():find("mysterious")) then
+                        return gui
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+-- ============================================
+-- ГЛАВНЫЙ ЛУП
+-- ============================================
+
+local farmState = "idle" -- idle, farming, selling, arrowing
+
+RunService.Heartbeat:Connect(function()
+    if not char or not root then return end
+
+    -- Авто фарм
+    if autoFarm and farmState == "idle" then
+        local item = findNearestPrompt()
+        if item then
+            local dist = (root.Position - item.pos).Magnitude
+            if dist > 6 then
+                root.CFrame = CFrame.new(
+                    root.Position:Lerp(item.pos + Vector3.new(0, 2, 0), 0.25)
+                )
+            else
+                pcall(function()
+                    fireproximityprompt(item.prompt)
+                end)
+            end
+        end
+    end
+
+    -- Авто продажа (каждые 10 секунд)
+    if autoSell and farmState == "idle" and not sellCooldown then
+        doAutoSell()
+    end
+end)
+
+-- Авто стрела — запускаем в отдельном луп через task.spawn
+task.spawn(function()
+    while true do
+        task.wait(1)
+        if not autoArrow then continue end
+
+        local currentStand = getCurrentStand()
+
+        if shouldKeepStand(currentStand) then
+            -- стенд хороший, не трогаем
+            continue
+        end
+
+        -- ищем кнопку Use Arrow в GUI
+        local btn = findArrowPrompt()
+        if btn then
+            pcall(function()
+                btn:Invoke()
+            end)
+            task.wait(1)
+            -- проверяем новый стенд
+            local newStand = getCurrentStand()
+            if shouldKeepStand(newStand) then
+                -- нашли хороший стенд!
+                game:GetService("StarterGui"):SetCore("SendNotification", {
+                    Title = "YBA Hub",
+                    Text = "Получен стенд: " .. (newStand or "?"),
+                    Duration = 5
+                })
+                autoArrow = false -- останавливаем
+            end
+        end
+    end
+end)
+
+-- ============================================
+-- GUI
+-- ============================================
+
+-- удаляем старое меню если есть
+if plr.PlayerGui:FindFirstChild("YBAMenu") then
+    plr.PlayerGui.YBAMenu:Destroy()
+end
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "YBAMenu"
+screenGui.ResetOnSpawn = false
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.Parent = plr.PlayerGui
+
+local main = Instance.new("Frame")
+main.Size = UDim2.new(0, 290, 0, 520)
+main.Position = UDim2.new(0, 20, 0.5, -260)
+main.BackgroundColor3 = Color3.fromRGB(12, 12, 18)
+main.BorderSizePixel = 0
+main.Active = true
+main.Draggable = true
+main.Parent = screenGui
+Instance.new("UICorner", main).CornerRadius = UDim.new(0, 10)
+
+-- Stroke
+local stroke = Instance.new("UIStroke")
+stroke.Color = Color3.fromRGB(80, 80, 120)
+stroke.Thickness = 1
+stroke.Parent = main
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 42)
+title.BackgroundColor3 = Color3.fromRGB(25, 25, 40)
+title.Text = "⚡ YBA Hub v3"
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.TextSize = 17
+title.Font = Enum.Font.GothamBold
+title.BorderSizePixel = 0
+title.Parent = main
+Instance.new("UICorner", title).CornerRadius = UDim.new(0, 10)
+
+-- Subtitle
+local sub = Instance.new("TextLabel")
+sub.Size = UDim2.new(1, 0, 0, 18)
+sub.Position = UDim2.new(0, 0, 0, 42)
+sub.BackgroundTransparency = 1
+sub.Text = "RCtrl = скрыть/показать"
+sub.TextColor3 = Color3.fromRGB(100, 100, 130)
+sub.TextSize = 11
+sub.Font = Enum.Font.Gotham
+sub.Parent = main
+
+local scroll = Instance.new("ScrollingFrame")
+scroll.Size = UDim2.new(1, -16, 1, -68)
+scroll.Position = UDim2.new(0, 8, 0, 65)
+scroll.BackgroundTransparency = 1
+scroll.ScrollBarThickness = 3
+scroll.ScrollBarImageColor3 = Color3.fromRGB(80, 80, 120)
+scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+scroll.Parent = main
+
+local layout = Instance.new("UIListLayout")
+layout.Padding = UDim.new(0, 6)
+layout.Parent = scroll
+
+-- Заголовок секции
+local function makeSection(text)
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, 0, 0, 22)
+    lbl.BackgroundColor3 = Color3.fromRGB(30, 30, 50)
+    lbl.Text = "— " .. text .. " —"
+    lbl.TextColor3 = Color3.fromRGB(150, 150, 200)
+    lbl.TextSize = 12
+    lbl.Font = Enum.Font.GothamBold
+    lbl.BorderSizePixel = 0
+    lbl.Parent = scroll
+    Instance.new("UICorner", lbl).CornerRadius = UDim.new(0, 4)
+end
+
+local function makeToggle(label, desc, callback)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, 0, 0, 50)
+    frame.BackgroundColor3 = Color3.fromRGB(22, 22, 35)
+    frame.BorderSizePixel = 0
+    frame.Parent = scroll
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 6)
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, -60, 0, 22)
+    lbl.Position = UDim2.new(0, 10, 0, 5)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = label
+    lbl.TextColor3 = Color3.fromRGB(220, 220, 220)
+    lbl.TextSize = 14
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Parent = frame
+
+    if desc then
+        local sub2 = Instance.new("TextLabel")
+        sub2.Size = UDim2.new(1, -60, 0, 18)
+        sub2.Position = UDim2.new(0, 10, 0, 26)
+        sub2.BackgroundTransparency = 1
+        sub2.Text = desc
+        sub2.TextColor3 = Color3.fromRGB(100, 100, 130)
+        sub2.TextSize = 11
+        sub2.Font = Enum.Font.Gotham
+        sub2.TextXAlignment = Enum.TextXAlignment.Left
+        sub2.Parent = frame
+    end
+
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0, 46, 0, 24)
+    btn.Position = UDim2.new(1, -54, 0.5, -12)
+    btn.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+    btn.Text = "OFF"
+    btn.TextColor3 = Color3.fromRGB(180, 180, 180)
+    btn.TextSize = 12
+    btn.Font = Enum.Font.GothamBold
+    btn.BorderSizePixel = 0
+    btn.Parent = frame
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+
+    local state = false
+    btn.MouseButton1Click:Connect(function()
+        state = not state
+        btn.Text = state and "ON" or "OFF"
+        btn.BackgroundColor3 = state and Color3.fromRGB(40, 120, 60) or Color3.fromRGB(50, 50, 70)
+        btn.TextColor3 = state and Color3.fromRGB(100, 255, 130) or Color3.fromRGB(180, 180, 180)
+        callback(state)
+    end)
+
+    return btn
+end
+
+local function makeSlider(label, min, max, default, callback)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, 0, 0, 54)
+    frame.BackgroundColor3 = Color3.fromRGB(22, 22, 35)
+    frame.BorderSizePixel = 0
+    frame.Parent = scroll
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 6)
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, -10, 0, 22)
+    lbl.Position = UDim2.new(0, 10, 0, 4)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = label .. ":  " .. default
+    lbl.TextColor3 = Color3.fromRGB(200, 200, 200)
+    lbl.TextSize = 13
+    lbl.Font = Enum.Font.Gotham
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Parent = frame
+
+    local track = Instance.new("Frame")
+    track.Size = UDim2.new(1, -20, 0, 6)
+    track.Position = UDim2.new(0, 10, 0, 36)
+    track.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+    track.BorderSizePixel = 0
+    track.Parent = frame
+    Instance.new("UICorner", track).CornerRadius = UDim.new(0, 3)
+
+    local fill = Instance.new("Frame")
+    fill.Size = UDim2.new((default - min) / (max - min), 0, 1, 0)
+    fill.BackgroundColor3 = Color3.fromRGB(80, 140, 255)
+    fill.BorderSizePixel = 0
+    fill.Parent = track
+    Instance.new("UICorner", fill).CornerRadius = UDim.new(0, 3)
+
+    local dragging = false
+    track.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then dragging = true end
+    end)
+    UserInputService.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+    end)
+    RunService.RenderStepped:Connect(function()
+        if not dragging then return end
+        local m = UserInputService:GetMouseLocation()
+        local pct = math.clamp((m.X - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
+        local val = math.floor(min + pct * (max - min))
+        fill.Size = UDim2.new(pct, 0, 1, 0)
+        lbl.Text = label .. ":  " .. val
+        callback(val)
+    end)
+end
+
+-- СЕКЦИЯ: ФИЗИКА
+makeSection("Физика персонажа")
+makeToggle("Fly", "W/A/S/D + Space/LCtrl", function(s)
+    if s then startFly() else stopFly() end
+end)
+makeToggle("NoClip", "Проходить сквозь стены", function(s)
+    noclip = s
+    if not s and char then
+        for _, p in ipairs(char:GetDescendants()) do
+            if p:IsA("BasePart") then p.CanCollide = true end
+        end
+    end
+end)
+makeSlider("WalkSpeed", 16, 500, 100, function(v) cfg.WalkSpeed = v end)
+makeSlider("JumpPower", 50, 500, 120, function(v) cfg.JumpPower = v end)
+makeSlider("Fly Speed", 20, 400, 150, function(v) cfg.FlySpeed = v end)
+
+-- СЕКЦИЯ: ФАРМ
+makeSection("Авто Фарм")
+makeToggle("Auto Farm Items", "Берёт вещи по вайтлисту", function(s)
+    autoFarm = s
+end)
+makeToggle("Auto Sell (ShiftPlox)", "Продаёт мусор мерчанту", function(s)
+    autoSell = s
+end)
+makeToggle("Auto Arrow", "Открывает стрелы, стопает на нужном стенде", function(s)
+    autoArrow = s
+end)
+
+-- СЕКЦИЯ: СТАТУС
+makeSection("Статус")
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Size = UDim2.new(1, 0, 0, 40)
+statusLabel.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
+statusLabel.Text = "Стенд: ..."
+statusLabel.TextColor3 = Color3.fromRGB(180, 220, 180)
+statusLabel.TextSize = 13
+statusLabel.Font = Enum.Font.Gotham
+statusLabel.BorderSizePixel = 0
+statusLabel.Parent = scroll
+Instance.new("UICorner", statusLabel).CornerRadius = UDim.new(0, 6)
+
+-- обновляем статус каждые 2 сек
+task.spawn(function()
+    while true do
+        task.wait(2)
+        local s = getCurrentStand()
+        local kept = shouldKeepStand(s)
+        statusLabel.Text = "Стенд: " .. (s or "None") .. (kept and " ✓" or "")
+        statusLabel.TextColor3 = kept and Color3.fromRGB(100, 255, 130) or Color3.fromRGB(200, 200, 200)
+    end
+end)
+
+-- Hide/Show
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == Enum.KeyCode.RightControl then
+        main.Visible = not main.Visible
+    end
+end)
