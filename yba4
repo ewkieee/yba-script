@@ -581,4 +581,712 @@ for _, item in ipairs(navItems) do
     page.CanvasSize = UDim2.new(0,0,0,0)
     page.AutomaticCanvasSize = Enum.AutomaticSize.Y
     page.Visible = false
-    page.Parent
+    page.Parent = Content
+
+    local pl = Instance.new("UIListLayout")
+    pl.Padding = UDim.new(0, 0)
+    pl.Parent = page
+    Instance.new("UIPadding", page).PaddingRight = UDim.new(0, 6)
+
+    pages[item.name] = page
+
+    btn.MouseButton1Click:Connect(function()
+        switchPage(item.name)
+    end)
+end
+
+-- =============================================
+-- UI COMPONENTS
+-- =============================================
+
+local function makeCard(parent)
+    local card = Instance.new("Frame")
+    card.Size = UDim2.new(1, 0, 0, 0)
+    card.AutomaticSize = Enum.AutomaticSize.Y
+    card.BackgroundColor3 = Color3.fromRGB(22, 22, 32)
+    card.BorderSizePixel = 0
+    card.Parent = parent
+    Instance.new("UICorner", card).CornerRadius = UDim.new(0, 8)
+    local p = Instance.new("UIPadding", card)
+    p.PaddingLeft = UDim.new(0,12)
+    p.PaddingRight = UDim.new(0,12)
+    p.PaddingTop = UDim.new(0,8)
+    p.PaddingBottom = UDim.new(0,8)
+    local l = Instance.new("UIListLayout", card)
+    l.Padding = UDim.new(0,6)
+    -- spacer
+    local sp = Instance.new("Frame")
+    sp.Size = UDim2.new(1,0,0,2)
+    sp.BackgroundTransparency = 1
+    sp.Parent = parent
+    return card
+end
+
+local function makeTitle(parent, text)
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, 0, 0, 28)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = text
+    lbl.TextColor3 = Color3.fromRGB(160,160,200)
+    lbl.TextSize = 12
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Parent = parent
+    return lbl
+end
+
+local function makeToggleRow(parent, label, default, onChange)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, 0, 0, 36)
+    row.BackgroundTransparency = 1
+    row.Parent = parent
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, -56, 1, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = label
+    lbl.TextColor3 = Color3.fromRGB(200,200,210)
+    lbl.TextSize = 13
+    lbl.Font = Enum.Font.Gotham
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Parent = row
+
+    -- Toggle pill
+    local pill = Instance.new("TextButton")
+    pill.Size = UDim2.new(0, 44, 0, 22)
+    pill.Position = UDim2.new(1, -44, 0.5, -11)
+    pill.BackgroundColor3 = default and Color3.fromRGB(80,160,80) or Color3.fromRGB(50,50,70)
+    pill.Text = ""
+    pill.BorderSizePixel = 0
+    pill.Parent = row
+    Instance.new("UICorner", pill).CornerRadius = UDim.new(0, 11)
+
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.new(0, 18, 0, 18)
+    knob.Position = default and UDim2.new(1,-20,0.5,-9) or UDim2.new(0,2,0.5,-9)
+    knob.BackgroundColor3 = Color3.fromRGB(255,255,255)
+    knob.BorderSizePixel = 0
+    knob.Parent = pill
+    Instance.new("UICorner", knob).CornerRadius = UDim.new(0.5,0)
+
+    local state = default or false
+    pill.MouseButton1Click:Connect(function()
+        state = not state
+        TweenService:Create(pill, TweenInfo.new(0.15), {
+            BackgroundColor3 = state and Color3.fromRGB(80,160,80) or Color3.fromRGB(50,50,70)
+        }):Play()
+        TweenService:Create(knob, TweenInfo.new(0.15), {
+            Position = state and UDim2.new(1,-20,0.5,-9) or UDim2.new(0,2,0.5,-9)
+        }):Play()
+        if onChange then onChange(state) end
+    end)
+    return pill, function() return state end
+end
+
+local function makeSliderRow(parent, label, min, max, default, onChange)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, 0, 0, 48)
+    row.BackgroundTransparency = 1
+    row.Parent = parent
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, -60, 0, 20)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = label
+    lbl.TextColor3 = Color3.fromRGB(200,200,210)
+    lbl.TextSize = 13
+    lbl.Font = Enum.Font.Gotham
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Parent = row
+
+    local valBox = Instance.new("TextLabel")
+    valBox.Size = UDim2.new(0, 50, 0, 20)
+    valBox.Position = UDim2.new(1,-52,0,0)
+    valBox.BackgroundColor3 = Color3.fromRGB(30,30,45)
+    valBox.Text = tostring(default)
+    valBox.TextColor3 = Color3.fromRGB(200,200,210)
+    valBox.TextSize = 12
+    valBox.Font = Enum.Font.GothamBold
+    valBox.BorderSizePixel = 0
+    valBox.Parent = row
+    Instance.new("UICorner", valBox).CornerRadius = UDim.new(0,4)
+
+    local track = Instance.new("Frame")
+    track.Size = UDim2.new(1, -4, 0, 6)
+    track.Position = UDim2.new(0, 2, 0, 32)
+    track.BackgroundColor3 = Color3.fromRGB(40,40,60)
+    track.BorderSizePixel = 0
+    track.Parent = row
+    Instance.new("UICorner", track).CornerRadius = UDim.new(0,3)
+
+    local fill = Instance.new("Frame")
+    fill.Size = UDim2.new((default-min)/(max-min), 0, 1, 0)
+    fill.BackgroundColor3 = Color3.fromRGB(80,120,220)
+    fill.BorderSizePixel = 0
+    fill.Parent = track
+    Instance.new("UICorner", fill).CornerRadius = UDim.new(0,3)
+
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.new(0,12,0,12)
+    knob.Position = UDim2.new((default-min)/(max-min),- 6,0.5,-6)
+    knob.BackgroundColor3 = Color3.fromRGB(180,200,255)
+    knob.BorderSizePixel = 0
+    knob.Parent = track
+    Instance.new("UICorner", knob).CornerRadius = UDim.new(0.5,0)
+
+    local dragging = false
+    track.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then dragging = true end
+    end)
+    UserInputService.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+    end)
+    RunService.RenderStepped:Connect(function()
+        if not dragging then return end
+        local m = UserInputService:GetMouseLocation()
+        local pct = math.clamp((m.X - track.AbsolutePosition.X)/track.AbsoluteSize.X, 0, 1)
+        local val = math.floor(min + pct*(max-min))
+        fill.Size = UDim2.new(pct,0,1,0)
+        knob.Position = UDim2.new(pct,-6,0.5,-6)
+        valBox.Text = tostring(val)
+        if onChange then onChange(val) end
+    end)
+    return row
+end
+
+local function makeDropdown(parent, label, options, onChange)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1,0,0,36)
+    row.BackgroundColor3 = Color3.fromRGB(28,28,42)
+    row.BorderSizePixel = 0
+    row.Parent = parent
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0,6)
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(0.6,0,1,0)
+    lbl.Position = UDim2.new(0,10,0,0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = label .. "  •  " .. (options[1] or "...")
+    lbl.TextColor3 = Color3.fromRGB(180,180,200)
+    lbl.TextSize = 12
+    lbl.Font = Enum.Font.Gotham
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Parent = row
+
+    local icon = Instance.new("TextLabel")
+    icon.Size = UDim2.new(0,24,0,24)
+    icon.Position = UDim2.new(1,-30,0.5,-12)
+    icon.BackgroundColor3 = Color3.fromRGB(40,40,60)
+    icon.Text = "⋮⋮"
+    icon.TextColor3 = Color3.fromRGB(120,120,150)
+    icon.TextSize = 12
+    icon.Font = Enum.Font.GothamBold
+    icon.BorderSizePixel = 0
+    icon.Parent = row
+    Instance.new("UICorner", icon).CornerRadius = UDim.new(0,4)
+
+    return row
+end
+
+local function makeDivider(parent)
+    local d = Instance.new("Frame")
+    d.Size = UDim2.new(1,-4,0,1)
+    d.BackgroundColor3 = Color3.fromRGB(35,35,50)
+    d.BorderSizePixel = 0
+    d.Parent = parent
+end
+
+-- =============================================
+-- PAGE: INFORMATION
+-- =============================================
+do
+    local p = pages["Information"]
+    local sp = Instance.new("UIPadding",p)
+    sp.PaddingTop = UDim.new(0,8)
+    sp.PaddingLeft = UDim.new(0,4)
+
+    local c = makeCard(p)
+    makeTitle(c, "YBA Hub — информация")
+
+    local info = Instance.new("TextLabel")
+    info.Size = UDim2.new(1,0,0,120)
+    info.BackgroundTransparency = 1
+    info.Text = "RightCtrl — скрыть/показать меню\n\nАвто фарм: подбирает предметы по вайтлисту\nАвто продажа: продаёт через ShiftPlox\nАвто стрелы: прокручивает стенды до нужного\n\nИспользуй на альт аккаунте!"
+    info.TextColor3 = Color3.fromRGB(160,160,180)
+    info.TextSize = 12
+    info.Font = Enum.Font.Gotham
+    info.TextXAlignment = Enum.TextXAlignment.Left
+    info.TextYAlignment = Enum.TextYAlignment.Top
+    info.TextWrapped = true
+    info.Parent = c
+
+    local statusCard = makeCard(p)
+    makeTitle(statusCard, "Текущий стенд")
+    local standStatus = Instance.new("TextLabel")
+    standStatus.Size = UDim2.new(1,0,0,30)
+    standStatus.BackgroundTransparency = 1
+    standStatus.Text = "Загрузка..."
+    standStatus.TextColor3 = Color3.fromRGB(100,220,130)
+    standStatus.TextSize = 14
+    standStatus.Font = Enum.Font.GothamBold
+    standStatus.TextXAlignment = Enum.TextXAlignment.Left
+    standStatus.Parent = statusCard
+
+    task.spawn(function()
+        while true do
+            task.wait(2)
+            local s = getCurrentStand()
+            local kept = shouldKeepStand(s)
+            standStatus.Text = (s or "None") .. (kept and "  ✓ (сохраняем)" or "")
+            standStatus.TextColor3 = kept and Color3.fromRGB(100,255,130) or Color3.fromRGB(200,200,200)
+        end
+    end)
+end
+
+-- =============================================
+-- PAGE: FARMING
+-- =============================================
+do
+    local p = pages["Farming"]
+    local sp = Instance.new("UIPadding",p)
+    sp.PaddingTop = UDim.new(0,8)
+    sp.PaddingLeft = UDim.new(0,4)
+
+    -- 2 колонки
+    local cols = Instance.new("Frame")
+    cols.Size = UDim2.new(1,-4,0,0)
+    cols.AutomaticSize = Enum.AutomaticSize.Y
+    cols.BackgroundTransparency = 1
+    cols.Parent = p
+    local colLayout = Instance.new("UIListLayout")
+    colLayout.FillDirection = Enum.FillDirection.Horizontal
+    colLayout.Padding = UDim.new(0,6)
+    colLayout.Parent = cols
+
+    -- Левая колонка
+    local left = Instance.new("Frame")
+    left.Size = UDim2.new(0.5,-3,0,0)
+    left.AutomaticSize = Enum.AutomaticSize.Y
+    left.BackgroundTransparency = 1
+    left.Parent = cols
+    local ll = Instance.new("UIListLayout", left)
+    ll.Padding = UDim.new(0,4)
+
+    local c1 = makeCard(left)
+    makeTitle(c1, "Auto farm items")
+    makeDropdown(c1, "Items (empty = all)", {"Stand Arrow","Rokaka","Diamond"}, nil)
+    makeDropdown(c1, "Travel Method", {"Teleport","Tween"}, nil)
+    makeDropdown(c1, "Farm Position Mode", {"Default","Custom"}, nil)
+    makeDivider(c1)
+    makeToggleRow(c1, "Enable farming", false, function(s) State.farmEnabled = s end)
+    makeToggleRow(c1, "Auto sell on stack limit", false, function(s) State.autoSell = s end)
+    makeDropdown(c1, "Never auto-sell", {"Gold Coin"}, nil)
+    makeToggleRow(c1, "Auto buy Lucky Arrow (75k)", false, function(s) State.autoBuyArrow = s end)
+
+    local c2 = makeCard(left)
+    makeTitle(c2, "Server Hop")
+    makeToggleRow(c2, "Server Hop Farm", false, function(s) State.serverHopFarm = s end)
+    makeSliderRow(c2, "Server Hop Wait Delay", 1, 30, 3, function(v) State.serverHopDelay = v end)
+    makeToggleRow(c2, "Auto Leave on Max ($1M & 9...)", false, function(s) State.autoLeaveOnMax = s end)
+    makeToggleRow(c2, "Item ESP", false, function(s)
+        State.itemESP = s
+        if not s then clearESP() end
+    end)
+    makeSliderRow(c2, "Item ESP Text Size", 8, 30, 14, function(v) State.itemESPSize = v end)
+
+    -- Правая колонка
+    local right = Instance.new("Frame")
+    right.Size = UDim2.new(0.5,-3,0,0)
+    right.AutomaticSize = Enum.AutomaticSize.Y
+    right.BackgroundTransparency = 1
+    right.Parent = cols
+    local rl = Instance.new("UIListLayout", right)
+    rl.Padding = UDim.new(0,4)
+
+    local c3 = makeCard(right)
+    makeTitle(c3, "Quest Farm")
+    makeToggleRow(c3, "Quest Farm", false, nil)
+    makeDropdown(c3, "Select Quest", {"Kill Thugs","Kill Vampires"}, nil)
+
+    local c4 = makeCard(right)
+    makeTitle(c4, "Direct NPC Farm")
+    makeToggleRow(c4, "Farm Target NPC", false, nil)
+    makeDropdown(c4, "Select NPC", {"Thug","Vampire","Zombie"}, nil)
+
+    local c5 = makeCard(right)
+    makeTitle(c5, "Auto Prestige")
+    makeToggleRow(c5, "Auto Prestige", false, nil)
+    makeToggleRow(c5, "Auto Leave on Max (P3 L50)", false, nil)
+
+    local c6 = makeCard(right)
+    makeTitle(c6, "Sell items")
+    makeDropdown(c6, "Sell specific items • Zepplin's", {"All","Stand Arrow"}, nil)
+    local sellBtn = Instance.new("TextButton")
+    sellBtn.Size = UDim2.new(1,0,0,32)
+    sellBtn.BackgroundColor3 = Color3.fromRGB(30,30,50)
+    sellBtn.Text = "Sell One Item  ›"
+    sellBtn.TextColor3 = Color3.fromRGB(180,180,200)
+    sellBtn.TextSize = 12
+    sellBtn.Font = Enum.Font.Gotham
+    sellBtn.TextXAlignment = Enum.TextXAlignment.Left
+    sellBtn.BorderSizePixel = 0
+    sellBtn.Parent = c6
+    Instance.new("UICorner",sellBtn).CornerRadius = UDim.new(0,6)
+    sellBtn.MouseButton1Click:Connect(function() task.spawn(doSell) end)
+
+    local sellAllBtn = Instance.new("TextButton")
+    sellAllBtn.Size = UDim2.new(1,0,0,32)
+    sellAllBtn.BackgroundColor3 = Color3.fromRGB(30,30,50)
+    sellAllBtn.Text = "Sell All Items  ›"
+    sellAllBtn.TextColor3 = Color3.fromRGB(180,180,200)
+    sellAllBtn.TextSize = 12
+    sellAllBtn.Font = Enum.Font.Gotham
+    sellAllBtn.TextXAlignment = Enum.TextXAlignment.Left
+    sellAllBtn.BorderSizePixel = 0
+    sellAllBtn.Parent = c6
+    Instance.new("UICorner",sellAllBtn).CornerRadius = UDim.new(0,6)
+    sellAllBtn.MouseButton1Click:Connect(function()
+        for i = 1, 5 do task.spawn(doSell) task.wait(2) end
+    end)
+end
+
+-- =============================================
+-- PAGE: VISUALS
+-- =============================================
+do
+    local p = pages["Visuals"]
+    local sp = Instance.new("UIPadding",p)
+    sp.PaddingTop = UDim.new(0,8)
+    sp.PaddingLeft = UDim.new(0,4)
+
+    local cols = Instance.new("Frame")
+    cols.Size = UDim2.new(1,-4,0,0)
+    cols.AutomaticSize = Enum.AutomaticSize.Y
+    cols.BackgroundTransparency = 1
+    cols.Parent = p
+    local colLayout = Instance.new("UIListLayout")
+    colLayout.FillDirection = Enum.FillDirection.Horizontal
+    colLayout.Padding = UDim.new(0,6)
+    colLayout.Parent = cols
+
+    local left = Instance.new("Frame")
+    left.Size = UDim2.new(0.5,-3,0,0)
+    left.AutomaticSize = Enum.AutomaticSize.Y
+    left.BackgroundTransparency = 1
+    left.Parent = cols
+    Instance.new("UIListLayout",left).Padding = UDim.new(0,4)
+
+    local c1 = makeCard(left)
+    makeTitle(c1, "Player ESP")
+    makeToggleRow(c1, "Enable Player ESP", false, function(s) State.playerESP = s end)
+    makeToggleRow(c1, "ESP Chams", true, function(s) State.espChams = s end)
+    makeToggleRow(c1, "ESP Names", true, function(s) State.espNames = s end)
+    makeToggleRow(c1, "ESP Distance", false, function(s) State.espDistance = s end)
+    makeToggleRow(c1, "ESP Stand", true, function(s) State.espStand = s end)
+    makeToggleRow(c1, "ESP Spec", true, function(s) State.espSpec = s end)
+    makeToggleRow(c1, "ESP Health", true, function(s) State.espHealth = s end)
+
+    local c2 = makeCard(left)
+    makeTitle(c2, "Self Visuals")
+    makeToggleRow(c2, "View Self HP", false, function(s) State.viewSelfHP = s end)
+
+    local right = Instance.new("Frame")
+    right.Size = UDim2.new(0.5,-3,0,0)
+    right.AutomaticSize = Enum.AutomaticSize.Y
+    right.BackgroundTransparency = 1
+    right.Parent = cols
+    Instance.new("UIListLayout",right).Padding = UDim.new(0,4)
+
+    local c3 = makeCard(right)
+    makeTitle(c3, "Weather")
+    makeToggleRow(c3, "Enable Weather Changer", false, function(s) State.weatherEnabled = s end)
+    makeDropdown(c3, "Select Weather", {"Rain","Sunny","Fog","Night"}, nil)
+
+    local c4 = makeCard(right)
+    makeTitle(c4, "Finishers changer")
+    makeDropdown(c4, "Select Finisher", {"Default","Custom"}, nil)
+    makeToggleRow(c4, "Enable Finisher changer", false, function(s) State.finisherEnabled = s end)
+
+    local c5 = makeCard(right)
+    makeTitle(c5, "Kill Sounds")
+    makeToggleRow(c5, "Enable Kill Sounds", false, function(s) State.killSounds = s end)
+    makeSliderRow(c5, "Volume", 0, 10, 3, function(v) State.killVolume = v/10 end)
+    makeDropdown(c5, "Sound Pack", {"Dota","Minecraft","Default"}, nil)
+    local testBtn = Instance.new("TextButton")
+    testBtn.Size = UDim2.new(1,0,0,30)
+    testBtn.BackgroundColor3 = Color3.fromRGB(30,30,50)
+    testBtn.Text = "Test Kill Sound  ›"
+    testBtn.TextColor3 = Color3.fromRGB(180,180,200)
+    testBtn.TextSize = 12
+    testBtn.Font = Enum.Font.Gotham
+    testBtn.TextXAlignment = Enum.TextXAlignment.Left
+    testBtn.BorderSizePixel = 0
+    testBtn.Parent = c5
+    Instance.new("UICorner",testBtn).CornerRadius = UDim.new(0,6)
+end
+
+-- =============================================
+-- PAGE: STANDS
+-- =============================================
+do
+    local p = pages["Stands"]
+    local sp = Instance.new("UIPadding",p)
+    sp.PaddingTop = UDim.new(0,8)
+    sp.PaddingLeft = UDim.new(0,4)
+
+    local c1 = makeCard(p)
+    makeTitle(c1, "Farm stands")
+    makeDropdown(c1, "Select Stands to Keep • Crazy D...", DEFAULT_KEEP_STANDS, function(v)
+        State.standKeepList[v] = true
+    end)
+    makeToggleRow(c1, "Keep Shinies", false, function(s) State.keepShinies = s end)
+    makeDropdown(c1, "Select Shinies to Keep • Bloodt...", {"Bloody","Classic"}, nil)
+    makeToggleRow(c1, "Auto Requiem", false, function(s) State.autoRequiem = s end)
+    local reqBtn = Instance.new("TextButton")
+    reqBtn.Size = UDim2.new(1,0,0,32)
+    reqBtn.BackgroundColor3 = Color3.fromRGB(30,30,50)
+    reqBtn.Text = "Buy Requiem Arrow  ›"
+    reqBtn.TextColor3 = Color3.fromRGB(180,180,200)
+    reqBtn.TextSize = 12
+    reqBtn.Font = Enum.Font.Gotham
+    reqBtn.TextXAlignment = Enum.TextXAlignment.Left
+    reqBtn.BorderSizePixel = 0
+    reqBtn.Parent = c1
+    Instance.new("UICorner",reqBtn).CornerRadius = UDim.new(0,6)
+
+    makeToggleRow(c1, "Server Hop If No Items", false, function(s) State.serverHopNoItems = s end)
+    makeSliderRow(c1, "Server Hop Wait Delay", 1, 30, 3, function(v) State.serverHopDelay = v end)
+    local skipBtn = Instance.new("TextButton")
+    skipBtn.Size = UDim2.new(1,0,0,32)
+    skipBtn.BackgroundColor3 = Color3.fromRGB(30,30,50)
+    skipBtn.Text = "Skip current Shiny  ›"
+    skipBtn.TextColor3 = Color3.fromRGB(180,180,200)
+    skipBtn.TextSize = 12
+    skipBtn.Font = Enum.Font.Gotham
+    skipBtn.TextXAlignment = Enum.TextXAlignment.Left
+    skipBtn.BorderSizePixel = 0
+    skipBtn.Parent = c1
+    Instance.new("UICorner",skipBtn).CornerRadius = UDim.new(0,6)
+
+    makeToggleRow(c1, "Enable Farm", false, function(s) State.standFarmEnabled = s end)
+    makeDropdown(c1, "Farm Method", {"Auto Arrow","Buy Arrow"}, nil)
+end
+
+-- =============================================
+-- PAGE: PLAYER
+-- =============================================
+do
+    local p = pages["Player"]
+    local sp = Instance.new("UIPadding",p)
+    sp.PaddingTop = UDim.new(0,8)
+    sp.PaddingLeft = UDim.new(0,4)
+
+    local cols = Instance.new("Frame")
+    cols.Size = UDim2.new(1,-4,0,0)
+    cols.AutomaticSize = Enum.AutomaticSize.Y
+    cols.BackgroundTransparency = 1
+    cols.Parent = p
+    local colL = Instance.new("UIListLayout")
+    colL.FillDirection = Enum.FillDirection.Horizontal
+    colL.Padding = UDim.new(0,6)
+    colL.Parent = cols
+
+    local left = Instance.new("Frame")
+    left.Size = UDim2.new(0.5,-3,0,0)
+    left.AutomaticSize = Enum.AutomaticSize.Y
+    left.BackgroundTransparency = 1
+    left.Parent = cols
+    Instance.new("UIListLayout",left).Padding = UDim.new(0,4)
+
+    local c1 = makeCard(left)
+    makeTitle(c1, "Movement")
+    makeToggleRow(c1, "Speed Changer", false, function(s)
+        State.speedChanger = s
+        if not s and hum then hum.WalkSpeed = 16 end
+    end)
+    makeSliderRow(c1, "WalkSpeed", 16, 500, 16, function(v) State.walkSpeed = v end)
+    makeToggleRow(c1, "JumpPower Changer", false, function(s)
+        State.jumpChanger = s
+        if not s and hum then hum.JumpPower = 50 end
+    end)
+    makeSliderRow(c1, "JumpPower", 50, 500, 50, function(v) State.jumpPower = v end)
+    makeToggleRow(c1, "Fly", false, function(s)
+        State.fly = s
+        if s then startFly() else stopFly() end
+    end)
+    makeSliderRow(c1, "Fly Speed", 10, 500, 50, function(v) State.flySpeed = v end)
+
+    local right = Instance.new("Frame")
+    right.Size = UDim2.new(0.5,-3,0,0)
+    right.AutomaticSize = Enum.AutomaticSize.Y
+    right.BackgroundTransparency = 1
+    right.Parent = cols
+    Instance.new("UIListLayout",right).Padding = UDim.new(0,4)
+
+    local c2 = makeCard(right)
+    makeTitle(c2, "Other")
+    makeToggleRow(c2, "Noclip", true, function(s) State.noclip = s end)
+    makeToggleRow(c2, "Steal Dropped Money", false, function(s) State.stealMoney = s end)
+    makeSliderRow(c2, "Min Money Steal", 0, 5000, 500, function(v) State.minMoneySteal = v end)
+end
+
+-- =============================================
+-- PAGE: PvP
+-- =============================================
+do
+    local p = pages["PvP"]
+    local sp = Instance.new("UIPadding",p)
+    sp.PaddingTop = UDim.new(0,8)
+    sp.PaddingLeft = UDim.new(0,4)
+
+    local cols = Instance.new("Frame")
+    cols.Size = UDim2.new(1,-4,0,0)
+    cols.AutomaticSize = Enum.AutomaticSize.Y
+    cols.BackgroundTransparency = 1
+    cols.Parent = p
+    local colL = Instance.new("UIListLayout")
+    colL.FillDirection = Enum.FillDirection.Horizontal
+    colL.Padding = UDim.new(0,6)
+    colL.Parent = cols
+
+    local left = Instance.new("Frame")
+    left.Size = UDim2.new(0.5,-3,0,0)
+    left.AutomaticSize = Enum.AutomaticSize.Y
+    left.BackgroundTransparency = 1
+    left.Parent = cols
+    Instance.new("UIListLayout",left).Padding = UDim.new(0,4)
+
+    local c1 = makeCard(left)
+    makeTitle(c1, "Block Bot")
+    makeToggleRow(c1, "Enable BlockBot", true, function(s) State.blockBot = s end)
+    makeToggleRow(c1, "Allow re-blocking", true, function(s) State.allowReblock = s end)
+    makeToggleRow(c1, "Keep block while holding F", true, function(s) State.keepBlockF = s end)
+    makeToggleRow(c1, "Unblocking", true, function(s) State.unblocking = s end)
+    makeToggleRow(c1, "Projectiles priority", false, function(s) State.projectilesPriority = s end)
+    makeToggleRow(c1, "Coliseum (1v1/2v2) mode", false, function(s) State.coliseumMode = s end)
+    makeToggleRow(c1, "Block Beach Boy E and Y", true, function(s) State.blockBeachBoy = s end)
+    local rehookBtn = Instance.new("TextButton")
+    rehookBtn.Size = UDim2.new(1,0,0,32)
+    rehookBtn.BackgroundColor3 = Color3.fromRGB(30,30,50)
+    rehookBtn.Text = "Re-hook Players  ›"
+    rehookBtn.TextColor3 = Color3.fromRGB(180,180,200)
+    rehookBtn.TextSize = 12
+    rehookBtn.Font = Enum.Font.Gotham
+    rehookBtn.TextXAlignment = Enum.TextXAlignment.Left
+    rehookBtn.BorderSizePixel = 0
+    rehookBtn.Parent = c1
+    Instance.new("UICorner",rehookBtn).CornerRadius = UDim.new(0,6)
+
+    local c2 = makeCard(left)
+    makeTitle(c2, "Target Stand Player")
+    makeDropdown(c2, "Target Player", {}, nil)
+    local refreshBtn = Instance.new("TextButton")
+    refreshBtn.Size = UDim2.new(1,0,0,30)
+    refreshBtn.BackgroundColor3 = Color3.fromRGB(30,30,50)
+    refreshBtn.Text = "Refresh Player List  ›"
+    refreshBtn.TextColor3 = Color3.fromRGB(180,180,200)
+    refreshBtn.TextSize = 12
+    refreshBtn.Font = Enum.Font.Gotham
+    refreshBtn.TextXAlignment = Enum.TextXAlignment.Left
+    refreshBtn.BorderSizePixel = 0
+    refreshBtn.Parent = c2
+    Instance.new("UICorner",refreshBtn).CornerRadius = UDim.new(0,6)
+    local clearBtn = Instance.new("TextButton")
+    clearBtn.Size = UDim2.new(1,0,0,30)
+    clearBtn.BackgroundColor3 = Color3.fromRGB(30,30,50)
+    clearBtn.Text = "Clear Target (random mode)  ›"
+    clearBtn.TextColor3 = Color3.fromRGB(180,180,200)
+    clearBtn.TextSize = 12
+    clearBtn.Font = Enum.Font.Gotham
+    clearBtn.TextXAlignment = Enum.TextXAlignment.Left
+    clearBtn.BorderSizePixel = 0
+    clearBtn.Parent = c2
+    Instance.new("UICorner",clearBtn).CornerRadius = UDim.new(0,6)
+    makeToggleRow(c2, "Target Stand Player", false, function(s) State.targetStandPlayer = s end)
+    makeToggleRow(c2, "Spectate Stand", false, nil)
+    makeToggleRow(c2, "Movement Prediction", true, function(s) State.movementPrediction = s end)
+    makeSliderRow(c2, "Prediction Strength", 1, 10, 4, function(v) State.predictionStrength = v/2 end)
+
+    local right = Instance.new("Frame")
+    right.Size = UDim2.new(0.5,-3,0,0)
+    right.AutomaticSize = Enum.AutomaticSize.Y
+    right.BackgroundTransparency = 1
+    right.Parent = cols
+    Instance.new("UIListLayout",right).Padding = UDim.new(0,4)
+
+    local c3 = makeCard(right)
+    makeTitle(c3, "Stand Pilot")
+    makeToggleRow(c3, "Pilot Stand", false, function(s) State.pilotStand = s end)
+    makeToggleRow(c3, "Pilot Speed Changer", true, function(s) State.pilotSpeedChanger = s end)
+    makeSliderRow(c3, "Pilot Speed", 10, 300, 98, function(v) State.pilotSpeed = v end)
+    makeToggleRow(c3, "Inf Pilot Range", false, function(s) State.infPilotRange = s end)
+    local cleanupBtn = Instance.new("TextButton")
+    cleanupBtn.Size = UDim2.new(1,0,0,30)
+    cleanupBtn.BackgroundColor3 = Color3.fromRGB(30,30,50)
+    cleanupBtn.Text = "Force Cleanup Pilot  ›"
+    cleanupBtn.TextColor3 = Color3.fromRGB(180,180,200)
+    cleanupBtn.TextSize = 12
+    cleanupBtn.Font = Enum.Font.Gotham
+    cleanupBtn.TextXAlignment = Enum.TextXAlignment.Left
+    cleanupBtn.BorderSizePixel = 0
+    cleanupBtn.Parent = c3
+    Instance.new("UICorner",cleanupBtn).CornerRadius = UDim.new(0,6)
+
+    local c4 = makeCard(right)
+    makeTitle(c4, "Exploits")
+    makeToggleRow(c4, "sticky finger exploit", true, function(s) State.stickyFinger = s end)
+    makeDropdown(c4, "target (empty = all)", {}, nil)
+    local rtlBtn = Instance.new("TextButton")
+    rtlBtn.Size = UDim2.new(1,0,0,30)
+    rtlBtn.BackgroundColor3 = Color3.fromRGB(30,30,50)
+    rtlBtn.Text = "Refresh Target List  ›"
+    rtlBtn.TextColor3 = Color3.fromRGB(180,180,200)
+    rtlBtn.TextSize = 12
+    rtlBtn.Font = Enum.Font.Gotham
+    rtlBtn.TextXAlignment = Enum.TextXAlignment.Left
+    rtlBtn.BorderSizePixel = 0
+    rtlBtn.Parent = c4
+    Instance.new("UICorner",rtlBtn).CornerRadius = UDim.new(0,6)
+end
+
+-- =============================================
+-- PAGE: SETTINGS
+-- =============================================
+do
+    local p = pages["Settings"]
+    local sp = Instance.new("UIPadding",p)
+    sp.PaddingTop = UDim.new(0,8)
+    sp.PaddingLeft = UDim.new(0,4)
+
+    local c1 = makeCard(p)
+    makeTitle(c1, "Keybinds")
+    local kbLbl = Instance.new("TextLabel")
+    kbLbl.Size = UDim2.new(1,0,0,60)
+    kbLbl.BackgroundTransparency = 1
+    kbLbl.Text = "RightCtrl — скрыть/показать меню\nFly управление: W/A/S/D + Space (вверх) + LCtrl (вниз)"
+    kbLbl.TextColor3 = Color3.fromRGB(160,160,180)
+    kbLbl.TextSize = 12
+    kbLbl.Font = Enum.Font.Gotham
+    kbLbl.TextXAlignment = Enum.TextXAlignment.Left
+    kbLbl.TextWrapped = true
+    kbLbl.Parent = c1
+
+    local c2 = makeCard(p)
+    makeTitle(c2, "UI")
+    makeSliderRow(c2, "UI Opacity", 0, 100, 100, function(v)
+        Window.BackgroundTransparency = 1 - v/100
+    end)
+end
+
+-- =============================================
+-- DEFAULT PAGE
+-- =============================================
+switchPage("Farming")
+
+-- Keybind
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == Enum.KeyCode.RightControl then
+        Window.Visible = not Window.Visible
+    end
+end)
