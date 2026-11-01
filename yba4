@@ -1,0 +1,584 @@
+-- YBA Hub | Full Script
+-- Farming | Visuals | Stands | PvP | Player
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local StarterGui = game:GetService("StarterGui")
+
+local plr = Players.LocalPlayer
+local char = plr.Character or plr.CharacterAdded:Wait()
+local root = char:WaitForChild("HumanoidRootPart")
+local hum = char:WaitForChild("Humanoid")
+local cam = workspace.CurrentCamera
+
+-- =============================================
+-- STATE
+-- =============================================
+local State = {
+    -- Farming
+    farmEnabled = false,
+    autoSell = false,
+    autoBuyArrow = false,
+    serverHopFarm = false,
+    serverHopDelay = 3,
+    itemESP = false,
+    itemESPSize = 14,
+    autoLeaveOnMax = false,
+    neverSellItems = {},
+    farmItems = {},
+    -- Stands
+    standFarmEnabled = false,
+    keepShinies = false,
+    autoRequiem = false,
+    serverHopNoItems = false,
+    standKeepList = {},
+    shinyKeepList = {},
+    -- Visuals
+    playerESP = false,
+    espChams = false,
+    espNames = false,
+    espDistance = false,
+    espStand = false,
+    espSpec = false,
+    espHealth = false,
+    weatherEnabled = false,
+    finisherEnabled = false,
+    killSounds = false,
+    killVolume = 3.0,
+    viewSelfHP = false,
+    -- PvP
+    blockBot = false,
+    allowReblock = true,
+    keepBlockF = true,
+    unblocking = true,
+    projectilesPriority = false,
+    coliseumMode = false,
+    blockBeachBoy = true,
+    rehookPlayers = false,
+    speedChanger = false,
+    walkSpeed = 16,
+    jumpChanger = false,
+    jumpPower = 50,
+    fly = false,
+    flySpeed = 50,
+    noclip = false,
+    stealMoney = false,
+    minMoneySteal = 500,
+    -- Stand Pilot
+    pilotStand = false,
+    pilotSpeedChanger = false,
+    pilotSpeed = 50,
+    infPilotRange = false,
+    -- Target
+    targetStandPlayer = false,
+    movementPrediction = true,
+    predictionStrength = 3.5,
+    -- Exploits
+    stickyFinger = false,
+}
+
+-- =============================================
+-- ITEM / STAND LISTS
+-- =============================================
+local SELL_ITEMS = {
+    "Gold Coin", "Diamond", "Stand Arrow", "Rokaka",
+    "Pure Rokaka", "Rib Cage", "Steel Ball", "Stone Mask",
+}
+
+local DEFAULT_KEEP_STANDS = {
+    "Star Platinum", "The World", "King Crimson",
+    "Gold Experience Requiem", "Killer Queen", "Crazy Diamond",
+    "Made in Heaven", "C-Moon", "Tusk Act 4", "D4C: Love Train",
+    "Whitesnake", "Stone Free", "Soft & Wet", "Star Platinum: The World",
+    "The World: Alternate Universe",
+}
+
+local FARM_ITEMS_DEFAULT = {
+    "Stand Arrow", "Mysterious Arrow", "Rokaka",
+    "Pure Rokaka", "Diamond", "Gold Coin",
+    "Stone Mask", "Steel Ball", "Rib Cage",
+}
+
+for _, v in ipairs(DEFAULT_KEEP_STANDS) do State.standKeepList[v] = true end
+for _, v in ipairs(FARM_ITEMS_DEFAULT) do State.farmItems[v] = true end
+
+-- =============================================
+-- CHARACTER REFRESH
+-- =============================================
+plr.CharacterAdded:Connect(function(c)
+    char = c
+    root = c:WaitForChild("HumanoidRootPart")
+    hum = c:WaitForChild("Humanoid")
+end)
+
+-- =============================================
+-- SPEED / JUMP FORCE
+-- =============================================
+RunService.Heartbeat:Connect(function()
+    if not hum or not hum.Parent then return end
+    if State.speedChanger then hum.WalkSpeed = State.walkSpeed end
+    if State.jumpChanger then hum.JumpPower = State.jumpPower end
+end)
+
+-- =============================================
+-- NOCLIP
+-- =============================================
+RunService.Stepped:Connect(function()
+    if State.noclip and char then
+        for _, p in ipairs(char:GetDescendants()) do
+            if p:IsA("BasePart") then p.CanCollide = false end
+        end
+    end
+end)
+
+-- =============================================
+-- FLY
+-- =============================================
+local flyConn, bodyVel, bodyGyro
+
+local function startFly()
+    if bodyVel then return end
+    bodyVel = Instance.new("BodyVelocity")
+    bodyVel.MaxForce = Vector3.new(1e5,1e5,1e5)
+    bodyVel.Velocity = Vector3.zero
+    bodyVel.Parent = root
+    bodyGyro = Instance.new("BodyGyro")
+    bodyGyro.MaxTorque = Vector3.new(1e5,1e5,1e5)
+    bodyGyro.D = 100
+    bodyGyro.Parent = root
+    flyConn = RunService.RenderStepped:Connect(function()
+        if not State.fly then return end
+        local d = Vector3.zero
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then d = d + cam.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then d = d - cam.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then d = d - cam.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then d = d + cam.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then d = d + Vector3.new(0,1,0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then d = d - Vector3.new(0,1,0) end
+        bodyVel.Velocity = d.Magnitude > 0 and d.Unit * State.flySpeed or Vector3.zero
+        bodyGyro.CFrame = cam.CFrame
+    end)
+end
+
+local function stopFly()
+    if flyConn then flyConn:Disconnect() flyConn = nil end
+    if bodyVel then bodyVel:Destroy() bodyVel = nil end
+    if bodyGyro then bodyGyro:Destroy() bodyGyro = nil end
+end
+
+-- =============================================
+-- AUTO FARM ITEMS
+-- =============================================
+local function isItemWanted(name)
+    if not name or name == "" then return false end
+    if next(State.farmItems) == nil then return true end
+    return State.farmItems[name] == true
+end
+
+local function findNearestItem()
+    local best, bestDist = nil, math.huge
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("ProximityPrompt") then
+            local act = obj.ActionText:lower()
+            if act:find("pick") or act:find("grab") then
+                local name = obj.ObjectText
+                if isItemWanted(name) then
+                    local part = obj.Parent
+                    local pos
+                    if part:IsA("BasePart") then pos = part.Position
+                    elseif part:IsA("Model") then
+                        pcall(function() pos = part:GetPivot().Position end)
+                    end
+                    if pos then
+                        local d = (root.Position - pos).Magnitude
+                        if d < bestDist then bestDist = d; best = {prompt=obj,pos=pos} end
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
+-- =============================================
+-- AUTO SELL (ShiftPlox)
+-- =============================================
+local sellCooldown = false
+
+local function findMerchantPrompt()
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("ProximityPrompt") then
+            local t = (obj.ObjectText or ""):lower()
+            local a = (obj.ActionText or ""):lower()
+            if t:find("shiftplox") or t:find("merchant") or a:find("sell") or a:find("talk") then
+                local part = obj.Parent
+                local pos
+                if part:IsA("BasePart") then pos = part.Position
+                elseif part:IsA("Model") then pcall(function() pos = part:GetPivot().Position end) end
+                if pos then return {prompt=obj, pos=pos} end
+            end
+        end
+    end
+    return nil
+end
+
+local function doSell()
+    if sellCooldown then return end
+    local m = findMerchantPrompt()
+    if not m then return end
+    sellCooldown = true
+    -- подходим к мерчанту
+    if (root.Position - m.pos).Magnitude > 7 then
+        root.CFrame = CFrame.new(m.pos + Vector3.new(0,4,0))
+        task.wait(0.5)
+    end
+    pcall(function() fireproximityprompt(m.prompt) end)
+    task.wait(2)
+    sellCooldown = false
+end
+
+-- =============================================
+-- STAND FARM (Auto Arrow)
+-- =============================================
+local function getCurrentStand()
+    local paths = {
+        function() return plr.leaderstats.Stand.Value end,
+        function() return plr.Data.Stand.Value end,
+        function() return plr:FindFirstChild("Stand") and plr.Stand.Value end,
+    }
+    for _, fn in ipairs(paths) do
+        local ok, v = pcall(fn)
+        if ok and v and v ~= "" and v ~= "None" then return v end
+    end
+    return nil
+end
+
+local function shouldKeepStand(name)
+    if not name then return false end
+    return State.standKeepList[name] == true
+end
+
+local function findUseArrowBtn()
+    for _, gui in ipairs(plr.PlayerGui:GetDescendants()) do
+        if gui:IsA("TextButton") then
+            local t = gui.Text:lower()
+            if t:find("use") then
+                local p = gui.Parent
+                if p then
+                    for _, c in ipairs(p:GetDescendants()) do
+                        if c:IsA("TextLabel") or c:IsA("StringValue") then
+                            local ct = tostring(c.Text or c.Value):lower()
+                            if ct:find("arrow") then return gui end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+-- =============================================
+-- ITEM ESP
+-- =============================================
+local espLabels = {}
+
+local function clearESP()
+    for _, v in pairs(espLabels) do pcall(function() v:Destroy() end) end
+    espLabels = {}
+end
+
+local function updateItemESP()
+    clearESP()
+    if not State.itemESP then return end
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("ProximityPrompt") then
+            local act = obj.ActionText:lower()
+            if act:find("pick") or act:find("grab") then
+                local part = obj.Parent
+                if part:IsA("BasePart") or part:IsA("Model") then
+                    local bb = Instance.new("BillboardGui")
+                    bb.AlwaysOnTop = true
+                    bb.Size = UDim2.new(0, 100, 0, 30)
+                    bb.StudsOffset = Vector3.new(0, 3, 0)
+                    bb.Adornee = part:IsA("BasePart") and part or part.PrimaryPart
+                    if bb.Adornee then
+                        bb.Parent = workspace
+                        local lbl = Instance.new("TextLabel")
+                        lbl.Size = UDim2.new(1,0,1,0)
+                        lbl.BackgroundTransparency = 1
+                        lbl.Text = obj.ObjectText
+                        lbl.TextColor3 = Color3.fromRGB(255,220,50)
+                        lbl.TextSize = State.itemESPSize
+                        lbl.Font = Enum.Font.GothamBold
+                        lbl.TextStrokeTransparency = 0
+                        lbl.Parent = bb
+                        table.insert(espLabels, bb)
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- =============================================
+-- STEAL DROPPED MONEY
+-- =============================================
+local function stealMoney()
+    if not State.stealMoney then return end
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("ProximityPrompt") then
+            local t = (obj.ObjectText or ""):lower()
+            local a = (obj.ActionText or ""):lower()
+            if t:find("money") or t:find("yen") or a:find("money") then
+                local part = obj.Parent
+                local pos
+                if part:IsA("BasePart") then pos = part.Position
+                elseif part:IsA("Model") then pcall(function() pos = part:GetPivot().Position end) end
+                if pos then
+                    local dist = (root.Position - pos).Magnitude
+                    if dist < 50 then
+                        pcall(function() fireproximityprompt(obj) end)
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- =============================================
+-- MAIN LOOP
+-- =============================================
+local farmTimer = 0
+local espTimer = 0
+local sellTimer = 0
+
+RunService.Heartbeat:Connect(function(dt)
+    if not char or not root then return end
+
+    farmTimer = farmTimer + dt
+    espTimer = espTimer + dt
+    sellTimer = sellTimer + dt
+
+    -- Auto Farm
+    if State.farmEnabled and farmTimer > 0.05 then
+        farmTimer = 0
+        local item = findNearestItem()
+        if item then
+            local dist = (root.Position - item.pos).Magnitude
+            if dist > 5 then
+                root.CFrame = CFrame.new(
+                    root.Position:Lerp(item.pos + Vector3.new(0, 2, 0), 0.3)
+                )
+            else
+                pcall(function() fireproximityprompt(item.prompt) end)
+            end
+        end
+    end
+
+    -- Auto Sell (каждые 8 сек)
+    if State.autoSell and sellTimer > 8 then
+        sellTimer = 0
+        task.spawn(doSell)
+    end
+
+    -- Steal Money
+    if State.stealMoney and farmTimer == 0 then
+        stealMoney()
+    end
+
+    -- Item ESP update (каждые 2 сек)
+    if espTimer > 2 then
+        espTimer = 0
+        task.spawn(updateItemESP)
+    end
+end)
+
+-- Stand Farm loop
+task.spawn(function()
+    while true do
+        task.wait(0.8)
+        if not State.standFarmEnabled then continue end
+        local stand = getCurrentStand()
+        if shouldKeepStand(stand) then
+            State.standFarmEnabled = false
+            pcall(function()
+                StarterGui:SetCore("SendNotification", {
+                    Title = "YBA Hub",
+                    Text = "✓ Получен стенд: " .. (stand or "?"),
+                    Duration = 8,
+                })
+            end)
+            -- обновляем кнопку в GUI
+            continue
+        end
+        local btn = findUseArrowBtn()
+        if btn then
+            pcall(function() btn:Invoke() end)
+            task.wait(1)
+        end
+    end
+end)
+
+-- =============================================
+-- GUI
+-- =============================================
+if plr.PlayerGui:FindFirstChild("YBAHub") then
+    plr.PlayerGui.YBAHub:Destroy()
+end
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "YBAHub"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent = plr.PlayerGui
+
+-- Main Window — размер как в RailHub
+local Window = Instance.new("Frame")
+Window.Size = UDim2.new(0, 620, 0, 460)
+Window.Position = UDim2.new(0.5, -310, 0.5, -230)
+Window.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
+Window.BorderSizePixel = 0
+Window.Active = true
+Window.Draggable = true
+Window.Parent = ScreenGui
+Instance.new("UICorner", Window).CornerRadius = UDim.new(0, 10)
+local ws = Instance.new("UIStroke", Window)
+ws.Color = Color3.fromRGB(50,50,70)
+ws.Thickness = 1
+
+-- Sidebar
+local Sidebar = Instance.new("Frame")
+Sidebar.Size = UDim2.new(0, 180, 1, 0)
+Sidebar.BackgroundColor3 = Color3.fromRGB(12, 12, 18)
+Sidebar.BorderSizePixel = 0
+Sidebar.Parent = Window
+Instance.new("UICorner", Sidebar).CornerRadius = UDim.new(0, 10)
+
+-- Logo area
+local Logo = Instance.new("Frame")
+Logo.Size = UDim2.new(1, 0, 0, 80)
+Logo.BackgroundTransparency = 1
+Logo.Parent = Sidebar
+
+local LogoIcon = Instance.new("TextLabel")
+LogoIcon.Size = UDim2.new(0, 40, 0, 40)
+LogoIcon.Position = UDim2.new(0, 12, 0, 10)
+LogoIcon.BackgroundColor3 = Color3.fromRGB(30, 30, 50)
+LogoIcon.Text = "⚡"
+LogoIcon.TextSize = 20
+LogoIcon.Font = Enum.Font.GothamBold
+LogoIcon.TextColor3 = Color3.fromRGB(255,255,255)
+LogoIcon.BorderSizePixel = 0
+LogoIcon.Parent = Logo
+Instance.new("UICorner", LogoIcon).CornerRadius = UDim.new(0, 8)
+
+local HubName = Instance.new("TextLabel")
+HubName.Size = UDim2.new(1, -65, 0, 22)
+HubName.Position = UDim2.new(0, 60, 0, 12)
+HubName.BackgroundTransparency = 1
+HubName.Text = "YBA Hub"
+HubName.TextColor3 = Color3.fromRGB(255,255,255)
+HubName.TextSize = 16
+HubName.Font = Enum.Font.GothamBold
+HubName.TextXAlignment = Enum.TextXAlignment.Left
+HubName.Parent = Logo
+
+local GameLabel = Instance.new("TextLabel")
+GameLabel.Size = UDim2.new(1, -65, 0, 16)
+GameLabel.Position = UDim2.new(0, 60, 0, 36)
+GameLabel.BackgroundTransparency = 1
+GameLabel.Text = "YBA"
+GameLabel.TextColor3 = Color3.fromRGB(100,100,130)
+GameLabel.TextSize = 12
+GameLabel.Font = Enum.Font.Gotham
+GameLabel.TextXAlignment = Enum.TextXAlignment.Left
+GameLabel.Parent = Logo
+
+-- Divider
+local div = Instance.new("Frame")
+div.Size = UDim2.new(1, -24, 0, 1)
+div.Position = UDim2.new(0, 12, 0, 80)
+div.BackgroundColor3 = Color3.fromRGB(40,40,60)
+div.BorderSizePixel = 0
+div.Parent = Sidebar
+
+-- Nav buttons
+local NavList = Instance.new("Frame")
+NavList.Size = UDim2.new(1, 0, 1, -90)
+NavList.Position = UDim2.new(0, 0, 0, 90)
+NavList.BackgroundTransparency = 1
+NavList.Parent = Sidebar
+
+local NavLayout = Instance.new("UIListLayout")
+NavLayout.Padding = UDim.new(0, 2)
+NavLayout.Parent = NavList
+Instance.new("UIPadding", NavList).PaddingLeft = UDim.new(0, 8)
+
+-- Content area
+local Content = Instance.new("Frame")
+Content.Size = UDim2.new(1, -188, 1, -10)
+Content.Position = UDim2.new(0, 185, 0, 5)
+Content.BackgroundTransparency = 1
+Content.Parent = Window
+
+-- Pages
+local pages = {}
+local navBtns = {}
+local currentPage = nil
+
+local function switchPage(name)
+    for n, p in pairs(pages) do
+        p.Visible = n == name
+    end
+    for n, b in pairs(navBtns) do
+        if n == name then
+            b.BackgroundColor3 = Color3.fromRGB(30, 30, 50)
+            b.TextColor3 = Color3.fromRGB(255, 255, 255)
+        else
+            b.BackgroundColor3 = Color3.fromRGB(0,0,0,0)
+            b.BackgroundTransparency = 1
+            b.TextColor3 = Color3.fromRGB(120, 120, 150)
+        end
+    end
+    currentPage = name
+end
+
+local navItems = {
+    {name="Information", icon="ℹ"},
+    {name="Farming", icon="⚙"},
+    {name="Visuals", icon="👁"},
+    {name="Stands", icon="⭐"},
+    {name="Player", icon="🧍"},
+    {name="PvP", icon="⚔"},
+    {name="Settings", icon="🔧"},
+}
+
+for _, item in ipairs(navItems) do
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, -8, 0, 38)
+    btn.BackgroundTransparency = 1
+    btn.Text = "  " .. item.icon .. "  " .. item.name
+    btn.TextColor3 = Color3.fromRGB(120, 120, 150)
+    btn.TextSize = 13
+    btn.Font = Enum.Font.Gotham
+    btn.TextXAlignment = Enum.TextXAlignment.Left
+    btn.BorderSizePixel = 0
+    btn.Parent = NavList
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+
+    navBtns[item.name] = btn
+
+    -- Page
+    local page = Instance.new("ScrollingFrame")
+    page.Size = UDim2.new(1, 0, 1, 0)
+    page.BackgroundTransparency = 1
+    page.BorderSizePixel = 0
+    page.ScrollBarThickness = 3
+    page.ScrollBarImageColor3 = Color3.fromRGB(60,60,90)
+    page.CanvasSize = UDim2.new(0,0,0,0)
+    page.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    page.Visible = false
+    page.Parent
