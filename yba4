@@ -1,4 +1,20 @@
--- YBA Hub | Full Script
+-- Anti-ban / Anti-detect
+local function antiDetect()
+    -- Отключаем телепортацию в пользу Lerp чтобы не палиться
+    -- Имитируем нормальное движение
+    local function safeTeleport(targetPos)
+        local steps = 10
+        local startPos = root.CFrame
+        local targetCF = CFrame.new(targetPos)
+        for i = 1, steps do
+            root.CFrame = startPos:Lerp(targetCF, i/steps)
+            task.wait(0.05)
+        end
+    end
+    return safeTeleport
+end
+
+local safeTeleport = antiDetect()-- YBA Hub | Full Script
 -- Farming | Visuals | Stands | PvP | Player
 
 local Players = game:GetService("Players")
@@ -369,9 +385,7 @@ RunService.Heartbeat:Connect(function(dt)
         if item then
             local dist = (root.Position - item.pos).Magnitude
             if dist > 5 then
-                root.CFrame = CFrame.new(
-                    root.Position:Lerp(item.pos + Vector3.new(0, 2, 0), 0.3)
-                )
+                safeTeleport(item.pos + Vector3.new(0, 2, 0))
             else
                 pcall(function() fireproximityprompt(item.prompt) end)
             end
